@@ -26,10 +26,10 @@ class ResidualBlock(nn.Module):
         super(ResidualBlock, self).__init__()
 
         conv_block = [
-            nn.Conv2d(in_channel, in_channel, 1, stride=1, padding=1, bias=False),
+            nn.Conv2d(in_channel, in_channel, 3, stride=1, padding=1, bias=False),
             nn.InstanceNorm2d(in_channel),
             nn.ReLU(inplace=True),
-            nn.Conv2d(in_channel, in_channel, 1, stride=1, padding=1, bias=False),
+            nn.Conv2d(in_channel, in_channel, 3, stride=1, padding=1, bias=False),
             nn.InstanceNorm2d(in_channel),
         ]
 
@@ -188,11 +188,11 @@ class StyleEncoder(nn.Module):
         self.down = nn.Sequential(*layers)
 
         # Style transform
-        res_blks = []
-        res_channel = style_out_channel + attr_channel
-        for _ in range(n_res_blocks):
-            res_blks.append(ResidualBlock(res_channel))
-        self.res_layer = nn.Sequential(*res_blks)
+        # res_blks = []
+        # res_channel = style_out_channel + attr_channel
+        # for _ in range(n_res_blocks):
+        #     res_blks.append(ResidualBlock(res_channel))
+        # self.res_layer = nn.Sequential(*res_blks)
 
     def forward(self, style, attr_intensity):
         source_style = self.down(style)
@@ -200,8 +200,8 @@ class StyleEncoder(nn.Module):
         attr_intensity = attr_intensity.view(attr_intensity.size(0),  attr_intensity.size(1), 1)
         feature = torch.cat([source_style, attr_intensity], 1)
         feature = feature.view(feature.size(0), feature.size(1), 1, 1)
-        target_style = self.res_layer(feature)
-        return target_style
+        # target_style = self.res_layer(feature)
+        return feature
 
 
 class GeneratorStyle(nn.Module):
