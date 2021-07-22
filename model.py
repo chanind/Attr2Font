@@ -26,10 +26,10 @@ class ResidualBlock(nn.Module):
         super(ResidualBlock, self).__init__()
 
         conv_block = [
-            nn.Conv2d(in_channel, in_channel, 3, stride=1, padding=1, bias=False),
+            nn.Conv2d(in_channel, in_channel, 1, stride=1, padding=1, bias=False),
             nn.InstanceNorm2d(in_channel),
             nn.ReLU(inplace=True),
-            nn.Conv2d(in_channel, in_channel, 3, stride=1, padding=1, bias=False),
+            nn.Conv2d(in_channel, in_channel, 1, stride=1, padding=1, bias=False),
             nn.InstanceNorm2d(in_channel),
         ]
 
