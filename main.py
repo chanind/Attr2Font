@@ -8,7 +8,7 @@ from torchvision.utils import save_image
 from torch.utils.tensorboard import SummaryWriter
 
 from dataloader import get_loader
-from model import CXLoss, DiscriminatorWithClassifier, GeneratorStyle
+from model import CXLoss, Discriminator, Generator
 from options import get_parser
 from vgg_cx import VGG19_CX
 
@@ -65,42 +65,37 @@ def train(opts):
     )
 
     # Model
-    generator = GeneratorStyle(
+    generator = Generator(
         n_style=opts.n_style,
-        attr_channel=opts.attr_channel,
         style_out_channel=opts.style_out_channel,
         n_res_blocks=opts.n_res_blocks,
         attention=opts.attention,
     )
-    discriminator = DiscriminatorWithClassifier()
+    discriminator = Discriminator()
     # Attrbute embedding
     # attribute: N x 37 -> N x 37 x 64
-    attribute_embed = nn.Embedding(opts.attr_channel, opts.attr_embed)
+    # attribute_embed = nn.Embedding(opts.attr_channel, opts.attr_embed)
     # unsupervise font num + 1 dummy id (for supervise)
-    attr_unsuper_tolearn = nn.Embedding(
-        opts.unsuper_num + 1, opts.attr_channel
-    )  # attribute intensity
+    # attr_unsuper_tolearn = nn.Embedding(
+    #     opts.unsuper_num + 1, opts.attr_channel
+    # )  # attribute intensity
 
-    if opts.multi_gpu:
-        generator = nn.DataParallel(generator)
-        discriminator = nn.DataParallel(discriminator)
-        attribute_embed = nn.DataParallel(attribute_embed)
-        attr_unsuper_tolearn = nn.DataParallel(attr_unsuper_tolearn)
+    # if opts.multi_gpu:
+    #     generator = nn.DataParallel(generator)
+    #     discriminator = nn.DataParallel(discriminator)
+    #     attribute_embed = nn.DataParallel(attribute_embed)
+    #     attr_unsuper_tolearn = nn.DataParallel(attr_unsuper_tolearn)
     generator = generator.to(device)
     discriminator = discriminator.to(device)
-    attribute_embed = attribute_embed.to(device)
-    attr_unsuper_tolearn = attr_unsuper_tolearn.to(device)
+    # attribute_embed = attribute_embed.to(device)
+    # attr_unsuper_tolearn = attr_unsuper_tolearn.to(device)
 
     # Discriminator output patch shape
     patch = (1, opts.img_size // 2 ** 4, opts.img_size // 2 ** 4)
 
     # optimizers
     optimizer_G = torch.optim.Adam(
-        [
-            {"params": generator.parameters()},
-            {"params": attr_unsuper_tolearn.parameters(), "lr": 1e-3},
-            {"params": attribute_embed.parameters(), "lr": 1e-3},
-        ],
+        generator.parameters(),
         lr=opts.lr,
         betas=(opts.b1, opts.b2),
     )
@@ -111,17 +106,17 @@ def train(opts):
     # Resume training
     if opts.init_epoch > 1:
         gen_file = os.path.join(checkpoint_dir, f"G_{opts.init_epoch}.pth")
-        attr_unsuper_file = os.path.join(
-            checkpoint_dir, f"attr_unsuper_embed_{opts.init_epoch}.pth"
-        )
-        attribute_embed_file = os.path.join(
-            checkpoint_dir, f"attribute_embed_{opts.init_epoch}"
-        )
+        # attr_unsuper_file = os.path.join(
+        #     checkpoint_dir, f"attr_unsuper_embed_{opts.init_epoch}.pth"
+        # )
+        # attribute_embed_file = os.path.join(
+        #     checkpoint_dir, f"attribute_embed_{opts.init_epoch}"
+        # )
         dis_file = os.path.join(checkpoint_dir, f"D_{opts.init_epoch}.pth")
 
         generator.load_state_dict(torch.load(gen_file))
-        attr_unsuper_tolearn.load_state_dict(torch.load(attr_unsuper_file))
-        attribute_embed.load_state_dict(torch.load(attribute_embed_file))
+        # attr_unsuper_tolearn.load_state_dict(torch.load(attr_unsuper_file))
+        # attribute_embed.load_state_dict(torch.load(attribute_embed_file))
         discriminator.load_state_dict(torch.load(dis_file))
 
     prev_time = time.time()
@@ -147,40 +142,41 @@ def train(opts):
             fontembd_B = batch["fontembed_B"].to(device)
             label_B = batch["label_B"].to(device)
             charclass_B = batch["charclass_B"].to(device)
+            styles_B = batch["styles_B"].to(device)
 
             valid = torch.ones((img_A.size(0), *patch)).to(device)
             fake = torch.zeros((img_A.size(0), *patch)).to(device)
 
-            # Construct attribute
-            attr_raw_A = attribute_embed(attrid)
-            attr_raw_B = attribute_embed(attrid)
+            # # Construct attribute
+            # attr_raw_A = attribute_embed(attrid)
+            # attr_raw_B = attribute_embed(attrid)
 
-            attr_A_embd = attr_unsuper_tolearn(fontembd_A)
-            attr_A_embd = attr_A_embd.view(attr_A_embd.size(0), attr_A_embd.size(2))
-            attr_A_embd = torch.sigmoid(3 * attr_A_embd)  # convert to [0, 1]
-            attr_A_intensity = label_A * attr_A_data + (1 - label_A) * attr_A_embd
+            # attr_A_embd = attr_unsuper_tolearn(fontembd_A)
+            # attr_A_embd = attr_A_embd.view(attr_A_embd.size(0), attr_A_embd.size(2))
+            # attr_A_embd = torch.sigmoid(3 * attr_A_embd)  # convert to [0, 1]
+            # attr_A_intensity = label_A * attr_A_data + (1 - label_A) * attr_A_embd
 
-            attr_A_intensity_u = attr_A_intensity.unsqueeze(-1)
-            attr_A = attr_A_intensity_u * attr_raw_A
+            # attr_A_intensity_u = attr_A_intensity.unsqueeze(-1)
+            # attr_A = attr_A_intensity_u * attr_raw_A
 
-            attr_B_embd = attr_unsuper_tolearn(fontembd_B)
-            attr_B_embd = attr_B_embd.view(attr_B_embd.size(0), attr_B_embd.size(2))
-            attr_B_embd = torch.sigmoid(3 * attr_B_embd)  # convert to [0, 1]
-            attr_B_intensity = label_B * attr_B_data + (1 - label_B) * attr_B_embd
+            # attr_B_embd = attr_unsuper_tolearn(fontembd_B)
+            # attr_B_embd = attr_B_embd.view(attr_B_embd.size(0), attr_B_embd.size(2))
+            # attr_B_embd = torch.sigmoid(3 * attr_B_embd)  # convert to [0, 1]
+            # attr_B_intensity = label_B * attr_B_data + (1 - label_B) * attr_B_embd
 
-            attr_B_intensity_u = attr_B_intensity.unsqueeze(-1)
-            attr_B = attr_B_intensity_u * attr_raw_B
+            # attr_B_intensity_u = attr_B_intensity.unsqueeze(-1)
+            # attr_B = attr_B_intensity_u * attr_raw_B
 
-            delta_intensity = attr_B_intensity - attr_A_intensity
-            delta_attr = attr_B - attr_A
+            # delta_intensity = attr_B_intensity - attr_A_intensity
+            # delta_attr = attr_B - attr_A
 
             # Forward G and D
-            fake_B, content_logits_A = generator(
-                img_A, styles_A, delta_intensity, delta_attr
+            fake_B = generator(
+                img_A, styles_A, styles_B
             )
 
-            pred_fake, real_A_attr_fake, fake_B_attr_fake = discriminator(
-                img_A, fake_B, charclass_B, attr_B_intensity
+            pred_fake = discriminator(
+                fake_B, styles_B,
             )
 
             if opts.lambda_cx > 0:
@@ -191,19 +187,9 @@ def train(opts):
             loss_GAN = opts.lambda_GAN * criterion_GAN(pred_fake, valid)
             loss_pixel = opts.lambda_l1 * criterion_pixel(fake_B, img_B)
 
-            loss_char_A = criterion_ce(
-                content_logits_A, charclass_A.view(charclass_A.size(0))
-            )  # +
-            loss_char_A = opts.lambda_char * loss_char_A
+        
 
-            loss_attr = torch.zeros(1).to(device)
-            if opts.dis_pred:
-                loss_attr += opts.lambda_attr * criterion_attr(
-                    attr_A_intensity, real_A_attr_fake
-                )
-                loss_attr += opts.lambda_attr * criterion_attr(
-                    attr_B_intensity, fake_B_attr_fake
-                )
+            # loss_attr = torch.zeros(1).to(device)
 
             # CX loss
             loss_CX = torch.zeros(1).to(device)
@@ -212,32 +198,26 @@ def train(opts):
                     cx = criterion_cx(vgg_img_B[l], vgg_fake_B[l])
                     loss_CX += cx * opts.lambda_cx
 
-            loss_G = loss_GAN + loss_pixel + loss_char_A + loss_CX + loss_attr
+            loss_G = loss_GAN + loss_pixel + loss_CX
 
             optimizer_G.zero_grad()
             loss_G.backward(retain_graph=True)
             optimizer_G.step()
 
             # Forward D
-            pred_real, A_attr_real, B_attr_real = discriminator(
-                img_A, img_B, charclass_B, attr_B_intensity.detach()
+            pred_real = discriminator(
+                img_B, styles_B,
             )
             loss_real = criterion_GAN(pred_real, valid)
 
-            loss_attr_D = torch.zeros(1).to(device)
-            if opts.dis_pred:
-                loss_attr_D += criterion_attr(attr_A_intensity.detach(), A_attr_real)
-                loss_attr_D += criterion_attr(attr_B_intensity.detach(), B_attr_real)
+            # loss_attr_D = torch.zeros(1).to(device)
 
-            pred_fake, A_attr_fake, B_attr_fake = discriminator(
-                img_A, fake_B.detach(), charclass_B, attr_B_intensity.detach()
+            pred_fake = discriminator(
+                fake_B.detach(), styles_B
             )  # noqa
-            if opts.dis_pred:
-                loss_attr_D += criterion_attr(attr_A_intensity.detach(), A_attr_fake)
-                loss_attr_D += criterion_attr(attr_B_intensity.detach(), B_attr_fake)
             loss_fake = criterion_GAN(pred_fake, fake)
 
-            loss_D = loss_real + loss_fake + loss_attr_D
+            loss_D = loss_real + loss_fake
 
             optimizer_D.zero_grad()
             loss_D.backward(retain_graph=True)
@@ -257,9 +237,7 @@ def train(opts):
                 f"D loss: {loss_D.item():.6f}, G loss: {loss_G.item():.6f}, "
                 f"loss_pixel: {loss_pixel.item():.6f}, "
                 f"loss_adv: {loss_GAN.item():.6f}, "
-                f"loss_char_A: {loss_char_A.item():.6f}, "
                 f"loss_CX: {loss_CX.item():.6f}, "
-                f"loss_attr: {loss_attr.item(): .6f}"
             )
 
             writer.add_scalar("GLoss_PX/train", loss_pixel.item(), global_step)
@@ -295,33 +273,34 @@ def train(opts):
                         val_img_A = val_batch["img_A"].to(device)
                         val_fontembed_A = val_batch["fontembed_A"].to(device)
                         val_styles_A = val_batch["styles_A"].to(device)
+                        val_styles_B = val_batch["styles_B"].to(device)
 
                         val_img_B = val_batch["img_B"].to(device)
 
-                        val_attr_A_intensity = attr_unsuper_tolearn(val_fontembed_A)
-                        val_attr_A_intensity = val_attr_A_intensity.view(
-                            val_attr_A_intensity.size(0), val_attr_A_intensity.size(2)
-                        )
-                        val_attr_A_intensity = torch.sigmoid(
-                            3 * val_attr_A_intensity
-                        )  # convert to [0, 1]
+                        # val_attr_A_intensity = attr_unsuper_tolearn(val_fontembed_A)
+                        # val_attr_A_intensity = val_attr_A_intensity.view(
+                        #     val_attr_A_intensity.size(0), val_attr_A_intensity.size(2)
+                        # )
+                        # val_attr_A_intensity = torch.sigmoid(
+                        #     3 * val_attr_A_intensity
+                        # )  # convert to [0, 1]
 
-                        val_attr_B_intensity = val_batch["attr_B"].to(device)
+                        # val_attr_B_intensity = val_batch["attr_B"].to(device)
 
-                        val_attr_raw_A = attribute_embed(val_attrid)
-                        val_attr_raw_B = attribute_embed(val_attrid)
+                        # val_attr_raw_A = attribute_embed(val_attrid)
+                        # val_attr_raw_B = attribute_embed(val_attrid)
 
-                        val_intensity_A_u = val_attr_A_intensity.unsqueeze(-1)
-                        val_intensity_B_u = val_attr_B_intensity.unsqueeze(-1)
+                        # val_intensity_A_u = val_attr_A_intensity.unsqueeze(-1)
+                        # val_intensity_B_u = val_attr_B_intensity.unsqueeze(-1)
 
-                        val_attr_A = val_intensity_A_u * val_attr_raw_A
-                        val_attr_B = val_intensity_B_u * val_attr_raw_B
+                        # val_attr_A = val_intensity_A_u * val_attr_raw_A
+                        # val_attr_B = val_intensity_B_u * val_attr_raw_B
 
-                        val_intensity = val_attr_B_intensity - val_attr_A_intensity
-                        val_attr = val_attr_B - val_attr_A
+                        # val_intensity = val_attr_B_intensity - val_attr_A_intensity
+                        # val_attr = val_attr_B - val_attr_A
 
-                        val_fake_B, _ = generator(
-                            val_img_A, val_styles_A, val_intensity, val_attr
+                        val_fake_B = generator(
+                            val_img_A, val_styles_A, val_styles_B
                         )
 
                         val_l1_loss += criterion_pixel(val_fake_B, val_img_B)
@@ -344,17 +323,17 @@ def train(opts):
 
         if opts.check_freq > 0 and epoch % opts.check_freq == 0:
             gen_file_file = os.path.join(checkpoint_dir, f"G_{epoch}.pth")
-            attribute_embed_file = os.path.join(
-                checkpoint_dir, f"attribute_embed_{epoch}.pth"
-            )
-            attr_unsuper_embed_file = os.path.join(
-                checkpoint_dir, f"attr_unsuper_embed_{epoch}.pth"
-            )
+            # attribute_embed_file = os.path.join(
+            #     checkpoint_dir, f"attribute_embed_{epoch}.pth"
+            # )
+            # attr_unsuper_embed_file = os.path.join(
+            #     checkpoint_dir, f"attr_unsuper_embed_{epoch}.pth"
+            # )
             dis_file_file = os.path.join(checkpoint_dir, f"D_{epoch}.pth")
 
             torch.save(generator.state_dict(), gen_file_file)
-            torch.save(attribute_embed.state_dict(), attribute_embed_file)
-            torch.save(attr_unsuper_tolearn.state_dict(), attr_unsuper_embed_file)
+            # torch.save(attribute_embed.state_dict(), attribute_embed_file)
+            # torch.save(attr_unsuper_tolearn.state_dict(), attr_unsuper_embed_file)
             torch.save(discriminator.state_dict(), dis_file_file)
 
 
